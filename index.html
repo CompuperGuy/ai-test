@@ -2,24 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>LiTe - Tiny Chat AI</title>
+  <title>LiTe - Tiny Chat AI (Upgraded!)</title>
   <style>
     body {
-      background: #fafafa;
+      background: #f0f2f5;
       font-family: Arial, sans-serif;
-      margin: 0;
       padding: 20px;
+      text-align: center;
     }
     #chatbox {
-      background: #fff;
-      border: 1px solid #ddd;
+      background: white;
       border-radius: 10px;
-      padding: 20px;
       max-width: 600px;
       margin: auto;
+      padding: 20px;
       height: 500px;
       overflow-y: auto;
-      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     .message {
       margin: 10px 0;
@@ -30,11 +29,10 @@
     }
     .lite {
       text-align: left;
-      color: #333;
+      color: #444;
     }
     #inputArea {
       display: flex;
-      margin-top: 20px;
       max-width: 600px;
       margin: 20px auto;
     }
@@ -42,31 +40,38 @@
       flex: 1;
       padding: 10px;
       font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 5px 0 0 5px;
     }
-    #sendBtn {
+    #sendBtn, #trainBtn {
       padding: 10px 20px;
       background: #007BFF;
-      color: white;
       border: none;
+      color: white;
       cursor: pointer;
     }
+    #trainBtn {
+      background: #FF5722;
+      margin-left: 5px;
+      border-radius: 0 5px 5px 0;
+    }
     #trainingStatus {
-      text-align: center;
       margin-top: 10px;
-      color: red;
       font-weight: bold;
+      color: #FF5722;
     }
   </style>
 </head>
 <body>
 
-<h1 style="text-align:center;">🤖 LiTe - Tiny Chat AI</h1>
+<h1>🤖 LiTe - Tiny Chat AI (Upgraded!)</h1>
 
 <div id="chatbox"></div>
 
 <div id="inputArea">
-  <input type="text" id="inputText" placeholder="Say something..." />
+  <input type="text" id="inputText" placeholder="Say something or enter secret code..." />
   <button id="sendBtn">Send</button>
+  <button id="trainBtn">Train Mode</button>
 </div>
 
 <div id="trainingStatus"></div>
@@ -74,16 +79,17 @@
 <script>
 // === LiTe Brain ===
 
-// Constants
-const VOCAB = {};  // word -> id
-const REVERSE_VOCAB = {}; // id -> word
-let nextId = 1;    // 0 reserved
+const SECRET_CODE = "0e9(dno!"; // Your secret training key
+let trainingMode = false;
+let lastUserInput = "";
+
+// Vocabulary & Weights
+const VOCAB = {};
+const REVERSE_VOCAB = {};
+let nextId = 1;
 const EMBED_SIZE = 8;
 const HIDDEN_SIZE = 16;
 const LEARNING_RATE = 0.1;
-let trainingMode = false;
-
-// Brain parameters
 const embeddings = {};
 const ff1_weight = [];
 const ff1_bias = [];
@@ -92,153 +98,153 @@ const ff2_bias = [];
 
 // Utils
 function randFloat() {
-    return Math.random() * 2 - 1;
+  return Math.random() * 2 - 1;
 }
 function dot(a, b) {
-    return a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+  return a.reduce((sum, ai, i) => sum + ai * b[i], 0);
 }
 function softmax(input) {
-    const max = Math.max(...input);
-    const exps = input.map(x => Math.exp(x - max));
-    const sum = exps.reduce((a, b) => a + b, 0);
-    return exps.map(x => x / sum);
+  const max = Math.max(...input);
+  const exps = input.map(x => Math.exp(x - max));
+  const sum = exps.reduce((a, b) => a + b, 0);
+  return exps.map(x => x / sum);
 }
 function relu(input) {
-    return input.map(x => Math.max(0, x));
+  return input.map(x => Math.max(0, x));
 }
 function linear(input, weight, bias, inputSize, outputSize) {
-    let output = new Array(outputSize).fill(0);
-    for (let i = 0; i < outputSize; i++) {
-        output[i] = bias[i] || 0;
-        for (let j = 0; j < inputSize; j++) {
-            output[i] += input[j] * (weight[i * inputSize + j] || 0);
-        }
+  let output = new Array(outputSize).fill(0);
+  for (let i = 0; i < outputSize; i++) {
+    output[i] = bias[i] || 0;
+    for (let j = 0; j < inputSize; j++) {
+      output[i] += input[j] * (weight[i * inputSize + j] || 0);
     }
-    return output;
+  }
+  return output;
 }
 
 // Tokenization
 function tokenize(word) {
-    word = word.toLowerCase();
-    if (!(word in VOCAB)) {
-        VOCAB[word] = nextId;
-        REVERSE_VOCAB[nextId] = word;
-        embeddings[nextId] = Array.from({length: EMBED_SIZE}, randFloat);
-        nextId++;
-    }
-    return VOCAB[word];
+  word = word.toLowerCase();
+  if (!(word in VOCAB)) {
+    VOCAB[word] = nextId;
+    REVERSE_VOCAB[nextId] = word;
+    embeddings[nextId] = Array.from({length: EMBED_SIZE}, randFloat);
+    nextId++;
+  }
+  return VOCAB[word];
 }
 function detokenize(id) {
-    return REVERSE_VOCAB[id] || "?";
+  return REVERSE_VOCAB[id] || "?";
 }
 
-// Initialize ff1 and ff2
+// Init weights
 for (let i = 0; i < HIDDEN_SIZE * EMBED_SIZE; i++) ff1_weight[i] = randFloat() * 0.1;
 for (let i = 0; i < HIDDEN_SIZE; i++) ff1_bias[i] = 0;
-for (let i = 0; i < nextId * HIDDEN_SIZE; i++) ff2_weight[i] = randFloat() * 0.1;
-for (let i = 0; i < nextId; i++) ff2_bias[i] = 0;
+for (let i = 0; i < 1000; i++) ff2_weight[i] = randFloat() * 0.1;
+for (let i = 0; i < 1000; i++) ff2_bias[i] = 0;
 
 // Forward pass
 function forward(inputToken) {
-    const embed = embeddings[inputToken];
-    if (!embed) return { probs: Array(nextId).fill(1 / nextId) };
-
-    let hidden = linear(embed, ff1_weight, ff1_bias, EMBED_SIZE, HIDDEN_SIZE);
-    hidden = relu(hidden);
-    let logits = linear(hidden, ff2_weight, ff2_bias, HIDDEN_SIZE, nextId);
-    let probs = softmax(logits);
-    return { embed, hidden, logits, probs };
+  const embed = embeddings[inputToken];
+  if (!embed) return { probs: Array(nextId).fill(1 / nextId) };
+  let hidden = linear(embed, ff1_weight, ff1_bias, EMBED_SIZE, HIDDEN_SIZE);
+  hidden = relu(hidden);
+  let logits = linear(hidden, ff2_weight, ff2_bias, HIDDEN_SIZE, nextId);
+  let probs = softmax(logits);
+  return { embed, hidden, logits, probs };
 }
 
 // Training step
 function trainStep(inputToken, targetToken) {
-    const { embed, hidden, logits, probs } = forward(inputToken);
-    let dLogits = probs.slice();
-    dLogits[targetToken] -= 1; // derivative
-
-    // Update ff2
-    for (let i = 0; i < nextId; i++) {
-        for (let j = 0; j < HIDDEN_SIZE; j++) {
-            ff2_weight[i * HIDDEN_SIZE + j] -= LEARNING_RATE * dLogits[i] * hidden[j];
-        }
-        ff2_bias[i] -= LEARNING_RATE * dLogits[i];
-    }
-
-    // Backprop to hidden
-    let dHidden = new Array(HIDDEN_SIZE).fill(0);
+  const { embed, hidden, logits, probs } = forward(inputToken);
+  let dLogits = probs.slice();
+  dLogits[targetToken] -= 1;
+  for (let i = 0; i < nextId; i++) {
     for (let j = 0; j < HIDDEN_SIZE; j++) {
-        for (let i = 0; i < nextId; i++) {
-            dHidden[j] += dLogits[i] * ff2_weight[i * HIDDEN_SIZE + j];
-        }
+      ff2_weight[i * HIDDEN_SIZE + j] -= LEARNING_RATE * dLogits[i] * hidden[j];
     }
-
-    // Update ff1
-    for (let i = 0; i < HIDDEN_SIZE; i++) {
-        for (let j = 0; j < EMBED_SIZE; j++) {
-            ff1_weight[i * EMBED_SIZE + j] -= LEARNING_RATE * dHidden[i] * embed[j];
-        }
-        ff1_bias[i] -= LEARNING_RATE * dHidden[i];
+    ff2_bias[i] -= LEARNING_RATE * dLogits[i];
+  }
+  let dHidden = new Array(HIDDEN_SIZE).fill(0);
+  for (let j = 0; j < HIDDEN_SIZE; j++) {
+    for (let i = 0; i < nextId; i++) {
+      dHidden[j] += dLogits[i] * ff2_weight[i * HIDDEN_SIZE + j];
     }
-
-    // Update embeddings
-    for (let i = 0; i < EMBED_SIZE; i++) {
-        embeddings[inputToken][i] -= LEARNING_RATE * dHidden.reduce((sum, dh, j) => sum + dh * (ff1_weight[j * EMBED_SIZE + i] || 0), 0);
+  }
+  for (let i = 0; i < HIDDEN_SIZE; i++) {
+    for (let j = 0; j < EMBED_SIZE; j++) {
+      ff1_weight[i * EMBED_SIZE + j] -= LEARNING_RATE * dHidden[i] * embed[j];
     }
+    ff1_bias[i] -= LEARNING_RATE * dHidden[i];
+  }
+  for (let i = 0; i < EMBED_SIZE; i++) {
+    embeddings[inputToken][i] -= LEARNING_RATE * dHidden.reduce((sum, dh, j) => sum + dh * (ff1_weight[j * EMBED_SIZE + i] || 0), 0);
+  }
 }
 
-// Messaging system
+// Chat functions
 const chatbox = document.getElementById('chatbox');
-
 function addMessage(text, sender) {
-    const div = document.createElement('div');
-    div.className = `message ${sender}`;
-    div.innerText = text;
-    chatbox.appendChild(div);
-    chatbox.scrollTop = chatbox.scrollHeight;
+  const div = document.createElement('div');
+  div.className = `message ${sender}`;
+  div.innerText = text;
+  chatbox.appendChild(div);
+  chatbox.scrollTop = chatbox.scrollHeight;
 }
 
 function reply(userText) {
-    const inputToken = tokenize(userText.trim());
-    const { probs } = forward(inputToken);
+  const inputToken = tokenize(userText.trim());
+  const { probs } = forward(inputToken);
+  let bestIdx = probs.indexOf(Math.max(...probs));
+  let replyWord = detokenize(bestIdx);
 
-    let bestIdx = probs.indexOf(Math.max(...probs));
-    const replyWord = detokenize(bestIdx);
+  // Add some personality
+  const feelings = ["😎", "😄", "🤖", "🔥", "✨"];
+  if (Math.random() < 0.3) {
+    replyWord += " " + feelings[Math.floor(Math.random() * feelings.length)];
+  }
 
-    addMessage(replyWord, "lite");
+  addMessage(replyWord, "lite");
+  lastUserInput = userText;
 }
 
-// Send button
+// Event listeners
 const inputText = document.getElementById('inputText');
 const sendBtn = document.getElementById('sendBtn');
+const trainBtn = document.getElementById('trainBtn');
 
-sendBtn.addEventListener('click', () => {
-    const text = inputText.value.trim();
-    if (text) {
-        addMessage(text, "user");
-        if (trainingMode) {
-            const parts = text.split("->").map(x => x.trim());
-            if (parts.length === 2) {
-                const inputToken = tokenize(parts[0]);
-                const targetToken = tokenize(parts[1]);
-                for (let i = 0; i < 100; i++) trainStep(inputToken, targetToken); // train more
-                addMessage(`🎯 Trained: "${parts[0]}" → "${parts[1]}"`, "lite");
-            } else {
-                addMessage("❓ Please format like: 'hello -> world'", "lite");
-            }
-        } else {
-            reply(text);
-        }
-        inputText.value = "";
-    }
-});
+sendBtn.addEventListener('click', sendMessage);
+trainBtn.addEventListener('click', toggleTraining);
 
-// Secret training mode key (press T)
-document.addEventListener('keydown', (e) => {
-    if (e.key === 't' || e.key === 'T') {
-        trainingMode = !trainingMode;
-        document.getElementById('trainingStatus').innerText = trainingMode ? "🛠️ TRAINING MODE" : "";
+function sendMessage() {
+  const text = inputText.value.trim();
+  if (text) {
+    addMessage(text, "user");
+
+    if (trainingMode) {
+      const parts = text.split("->").map(x => x.trim());
+      if (parts.length === 2) {
+        const inputToken = tokenize(parts[0]);
+        const targetToken = tokenize(parts[1]);
+        for (let i = 0; i < 100; i++) trainStep(inputToken, targetToken);
+        addMessage(`🎯 Trained: "${parts[0]}" → "${parts[1]}"`, "lite");
+      } else {
+        addMessage("❓ Format: input -> output", "lite");
+      }
+    } else if (text === SECRET_CODE) {
+      toggleTraining();
+    } else {
+      reply(text);
     }
-});
+    inputText.value = "";
+  }
+}
+
+function toggleTraining() {
+  trainingMode = !trainingMode;
+  document.getElementById('trainingStatus').innerText = trainingMode ? "🛠️ TRAINING MODE ON" : "";
+}
 
 </script>
 
