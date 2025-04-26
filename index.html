@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mini GPT in JavaScript</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    pre { background: #222; color: #eee; padding: 20px; border-radius: 8px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+
+<h1>🚀 Tiny GPT in JavaScript</h1>
+
+<pre id="output"></pre>
+
+<script>
+// Constants
+const VOCAB_SIZE = 10;
+const EMBED_SIZE = 8;
+const SEQ_LEN = 4;
+const HIDDEN_SIZE = 16;
+
+// Random float between -1 and 1
+function randFloat() {
+    return Math.random() * 2 - 1;
+}
+
+// Dot product
+function dot(a, b) {
+    return a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+}
+
+// Softmax
+function softmax(input) {
+    const max = Math.max(...input);
+    const exps = input.map(x => Math.exp(x - max));
+    const sum = exps.reduce((a, b) => a + b, 0);
+    return exps.map(x => x / sum);
+}
+
+// Linear layer
+function linear(input, weight, bias, inputSize, outputSize) {
+    let output = new Array(outputSize).fill(0);
+    for (let i = 0; i < outputSize; i++) {
+        output[i] = bias[i];
+        for (let j = 0; j < inputSize; j++) {
+            output[i] += input[j] * weight[i * inputSize + j];
+        }
+    }
+    return output;
+}
+
+// ReLU activation
+function relu(input) {
+    return input.map(x => Math.max(0, x));
+}
+
+// Cross-entropy loss
+function crossEntropy(probs, label) {
+    return -Math.log(probs[label] + 1e-9);
+}
+
+// Initialize parameters
+let embeddings = Array.from({length: VOCAB_SIZE}, () =>
+    Array.from({length: EMBED_SIZE}, randFloat)
+);
+
+let ff1_weight = Array.from({length: HIDDEN_SIZE * EMBED_SIZE}, () => randFloat() * 0.1);
+let ff1_bias = Array.from({length: HIDDEN_SIZE}, () => 0);
+
+let ff2_weight = Array.from({length: VOCAB_SIZE * HIDDEN_SIZE}, () => randFloat() * 0.1);
+let ff2_bias = Array.from({length: VOCAB_SIZE}, () => 0);
+
+// Example input tokens
+let inputTokens = [1, 2, 3, 4];
+
+// Embedding lookup
+let embedded = inputTokens.map(t => embeddings[t]);
+
+// Self-attention
+let attnScores = Array.from({length: SEQ_LEN}, () => Array(SEQ_LEN).fill(0));
+let attnProbs = Array.from({length: SEQ_LEN}, () => Array(SEQ_LEN).fill(0));
+
+for (let i = 0; i < SEQ_LEN; i++) {
+    for (let j = 0; j < SEQ_LEN; j++) {
+        attnScores[i][j] = dot(embedded[i], embedded[j]);
+    }
+    attnProbs[i] = softmax(attnScores[i]);
+}
+
+// Attention output
+let attended = Array.from({length: SEQ_LEN}, () => Array(EMBED_SIZE).fill(0));
+
+for (let i = 0; i < SEQ_LEN; i++) {
+    for (let j = 0; j < SEQ_LEN; j++) {
+        for (let k = 0; k < EMBED_SIZE; k++) {
+            attended[i][k] += attnProbs[i][j] * embedded[j][k];
+        }
+    }
+}
+
+// Feedforward Network
+let hidden = linear(attended[0], ff1_weight, ff1_bias, EMBED_SIZE, HIDDEN_SIZE);
+hidden = relu(hidden);
+let logits = linear(hidden, ff2_weight, ff2_bias, HIDDEN_SIZE, VOCAB_SIZE);
+let probs = softmax(logits);
+
+// Show prediction
+const output = document.getElementById('output');
+output.innerText = `Predicted Probabilities:\n\n${probs.map(p => p.toFixed(4)).join(' ')}`;
+
+</script>
+
+</body>
+</html>
