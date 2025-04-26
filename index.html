@@ -2,44 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Mini GPT in JavaScript</title>
+  <title>Tiny GPT - Learning Mode</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 40px; }
     pre { background: #222; color: #eee; padding: 20px; border-radius: 8px; overflow-x: auto; }
+    button { margin-top: 20px; padding: 10px 20px; font-size: 16px; }
   </style>
 </head>
 <body>
 
-<h1>🚀 Tiny GPT in JavaScript</h1>
+<h1>🚀 Tiny GPT (Learning)</h1>
 
-<pre id="output"></pre>
+<pre id="output">Initializing...</pre>
+<button onclick="startTraining()">Start Training</button>
 
 <script>
 // Constants
 const VOCAB_SIZE = 10;
 const EMBED_SIZE = 8;
-const SEQ_LEN = 4;
+const SEQ_LEN = 1; // tiny sequence for simplicity
 const HIDDEN_SIZE = 16;
+const LEARNING_RATE = 0.1;
 
-// Random float between -1 and 1
+// Utility functions
 function randFloat() {
     return Math.random() * 2 - 1;
 }
-
-// Dot product
 function dot(a, b) {
     return a.reduce((sum, ai, i) => sum + ai * b[i], 0);
 }
-
-// Softmax
 function softmax(input) {
     const max = Math.max(...input);
     const exps = input.map(x => Math.exp(x - max));
     const sum = exps.reduce((a, b) => a + b, 0);
     return exps.map(x => x / sum);
 }
-
-// Linear layer
 function linear(input, weight, bias, inputSize, outputSize) {
     let output = new Array(outputSize).fill(0);
     for (let i = 0; i < outputSize; i++) {
@@ -50,13 +47,9 @@ function linear(input, weight, bias, inputSize, outputSize) {
     }
     return output;
 }
-
-// ReLU activation
 function relu(input) {
     return input.map(x => Math.max(0, x));
 }
-
-// Cross-entropy loss
 function crossEntropy(probs, label) {
     return -Math.log(probs[label] + 1e-9);
 }
@@ -65,50 +58,103 @@ function crossEntropy(probs, label) {
 let embeddings = Array.from({length: VOCAB_SIZE}, () =>
     Array.from({length: EMBED_SIZE}, randFloat)
 );
-
 let ff1_weight = Array.from({length: HIDDEN_SIZE * EMBED_SIZE}, () => randFloat() * 0.1);
 let ff1_bias = Array.from({length: HIDDEN_SIZE}, () => 0);
-
 let ff2_weight = Array.from({length: VOCAB_SIZE * HIDDEN_SIZE}, () => randFloat() * 0.1);
 let ff2_bias = Array.from({length: VOCAB_SIZE}, () => 0);
 
-// Example input tokens
-let inputTokens = [1, 2, 3, 4];
+const output = document.getElementById('output');
 
-// Embedding lookup
-let embedded = inputTokens.map(t => embeddings[t]);
+// Forward pass
+function forward(inputToken) {
+    let embed = embeddings[inputToken]; // [EMBED_SIZE]
 
-// Self-attention
-let attnScores = Array.from({length: SEQ_LEN}, () => Array(SEQ_LEN).fill(0));
-let attnProbs = Array.from({length: SEQ_LEN}, () => Array(SEQ_LEN).fill(0));
+    let hidden = linear(embed, ff1_weight, ff1_bias, EMBED_SIZE, HIDDEN_SIZE);
+    hidden = relu(hidden);
+    let logits = linear(hidden, ff2_weight, ff2_bias, HIDDEN_SIZE, VOCAB_SIZE);
+    let probs = softmax(logits);
 
-for (let i = 0; i < SEQ_LEN; i++) {
-    for (let j = 0; j < SEQ_LEN; j++) {
-        attnScores[i][j] = dot(embedded[i], embedded[j]);
-    }
-    attnProbs[i] = softmax(attnScores[i]);
+    return {embed, hidden, logits, probs};
 }
 
-// Attention output
-let attended = Array.from({length: SEQ_LEN}, () => Array(EMBED_SIZE).fill(0));
+// One training step
+function trainStep(inputToken, targetToken) {
+    let {embed, hidden, logits, probs} = forward(inputToken);
 
-for (let i = 0; i < SEQ_LEN; i++) {
-    for (let j = 0; j < SEQ_LEN; j++) {
-        for (let k = 0; k < EMBED_SIZE; k++) {
-            attended[i][k] += attnProbs[i][j] * embedded[j][k];
+    // Calculate loss
+    const loss = crossEntropy(probs, targetToken);
+
+    // Gradients (manual super-simplified)
+    let dLogits = probs.slice();
+    dLogits[targetToken] -= 1; // derivative of cross-entropy + softmax
+
+    // Backprop to ff2 weights
+    for (let i = 0; i < VOCAB_SIZE; i++) {
+        for (let j = 0; j < HIDDEN_SIZE; j++) {
+            ff2_weight[i * HIDDEN_SIZE + j] -= LEARNING_RATE * dLogits[i] * hidden[j];
+        }
+        ff2_bias[i] -= LEARNING_RATE * dLogits[i];
+    }
+
+    // Backprop to hidden layer (ignoring ReLU grad for simplicity)
+    let dHidden = new Array(HIDDEN_SIZE).fill(0);
+    for (let j = 0; j < HIDDEN_SIZE; j++) {
+        for (let i = 0; i < VOCAB_SIZE; i++) {
+            dHidden[j] += dLogits[i] * ff2_weight[i * HIDDEN_SIZE + j];
         }
     }
+
+    // Backprop to ff1 weights
+    for (let i = 0; i < HIDDEN_SIZE; i++) {
+        for (let j = 0; j < EMBED_SIZE; j++) {
+            ff1_weight[i * EMBED_SIZE + j] -= LEARNING_RATE * dHidden[i] * embed[j];
+        }
+        ff1_bias[i] -= LEARNING_RATE * dHidden[i];
+    }
+
+    // Backprop to embeddings
+    let dEmbed = new Array(EMBED_SIZE).fill(0);
+    for (let j = 0; j < EMBED_SIZE; j++) {
+        for (let i = 0; i < HIDDEN_SIZE; i++) {
+            dEmbed[j] += dHidden[i] * ff1_weight[i * EMBED_SIZE + j];
+        }
+    }
+    for (let i = 0; i < EMBED_SIZE; i++) {
+        embeddings[inputToken][i] -= LEARNING_RATE * dEmbed[i];
+    }
+
+    return loss;
 }
 
-// Feedforward Network
-let hidden = linear(attended[0], ff1_weight, ff1_bias, EMBED_SIZE, HIDDEN_SIZE);
-hidden = relu(hidden);
-let logits = linear(hidden, ff2_weight, ff2_bias, HIDDEN_SIZE, VOCAB_SIZE);
-let probs = softmax(logits);
+// Training Loop
+let steps = 0;
+let intervalId;
 
-// Show prediction
-const output = document.getElementById('output');
-output.innerText = `Predicted Probabilities:\n\n${probs.map(p => p.toFixed(4)).join(' ')}`;
+function startTraining() {
+    if (intervalId) clearInterval(intervalId);
+
+    steps = 0;
+    intervalId = setInterval(() => {
+        // Training example: input 1 -> expect output 2
+        const inputToken = 1;
+        const targetToken = 2;
+
+        const loss = trainStep(inputToken, targetToken);
+        steps++;
+
+        output.innerText = `Step: ${steps}\nLoss: ${loss.toFixed(6)}\n\n`;
+
+        if (steps % 50 === 0) {
+            const {probs} = forward(inputToken);
+            output.innerText += `Prediction: ${probs.map(p => p.toFixed(2)).join(' ')}\n`;
+        }
+
+        if (loss < 0.01 || steps > 2000) {
+            clearInterval(intervalId);
+            output.innerText += "\n✅ Training complete!";
+        }
+    }, 20);
+}
 
 </script>
 
